@@ -66,7 +66,29 @@ static struct indicator_led_state state = {
     .cycle_state = false,
     .blinky_state = false,
 };
+static uint8_t burst_step;
+static uint8_t last_layer = 0xFF;
 static void polling_work_work_handler(struct k_work *work);
+int zmk_indicator_led_on();
+int zmk_indicator_led_off();
+
+#define LAYER_BURST_FLASHES 2
+#define LAYER_BURST_PAUSE_TICKS 4
+
+static void apply_layer_burst(uint8_t flashes) {
+    uint8_t onoff = flashes * 2;
+    uint8_t period = onoff + LAYER_BURST_PAUSE_TICKS;
+    uint8_t phase = burst_step % period;
+    bool lit = (phase < onoff) && ((phase % 2) == 0);
+
+    if (lit) {
+        zmk_indicator_led_set_brt(CONFIG_ZMK_IDICATOR_LAYER_BRT);
+        zmk_indicator_led_on();
+    } else {
+        zmk_indicator_led_off();
+    }
+    burst_step++;
+}
 
 static int zmk_indicator_led_update() {
     uint8_t brt = zmk_indicator_led_get_brt();
@@ -221,27 +243,35 @@ static inline void blinky_onoff(bool onoff) {
 }
 
 static void polling_work_work_handler(struct k_work *work) {
-    if (zmk_keymap_highest_layer_active() == 0) {
+    uint8_t layer = zmk_keymap_highest_layer_active();
+
+    if (layer != last_layer) {
+        burst_step = 0;
+        last_layer = layer;
+    }
+
+    if (layer == 0) {
         cycle_onoff(false);
-        zmk_indicator_led_off();
         blinky_onoff(false);
-    } else if (zmk_keymap_highest_layer_active() == 1) {
+        zmk_indicator_led_off();
+    } else if (layer == 1) {
+        /* 符号层：上层 4 灯长亮 */
         cycle_onoff(false);
+        blinky_onoff(false);
         zmk_indicator_led_set_brt(CONFIG_ZMK_IDICATOR_LAYER_BRT);
         zmk_indicator_led_on();
+    } else if (layer == 2) {
+        /* 功能层：2 闪一顿 */
+        cycle_onoff(false);
         blinky_onoff(false);
-    } else if (zmk_keymap_highest_layer_active() == 2) {
-        if (!zmk_indicator_led_is_on())
-            zmk_indicator_led_on();
-        cycle_onoff(true);
-        blinky_onoff(false);
-    } else if (zmk_keymap_highest_layer_active() == 3) {
+        apply_layer_burst(LAYER_BURST_FLASHES);
+    } else if (layer == 3) {
         if (!zmk_indicator_led_is_on())
             zmk_indicator_led_on();
         cycle_onoff(false);
         blinky_onoff(true);
     }
-    k_work_reschedule(&polling_work, K_MSEC(100));
+    k_work_reschedule(&polling_work, K_MSEC(120));
 }
 /*static void polling_work_work_handler(struct k_work *work) {
     for (int i = 0; i < 4; i++) {
