@@ -426,6 +426,20 @@ config TRACKPAD_SPEEDMULTIPLIER_VERTICAL
     range 0 10000
     default 100
 
+config TRACKPAD_ARROW_THRESHOLD
+    int "Accumulated trackpad movement before one arrow key"
+    range 5 200
+    default 30
+    help
+      Higher = need more swipe distance per arrow keypress.
+
+config TRACKPAD_ARROW_INTERVAL
+    int "Delay in ms after each arrow key from trackpad"
+    range 10 500
+    default 80
+    help
+      Higher = slower continuous arrow repeats while swiping.
+
 #Display/LED Options
 endmenu
 

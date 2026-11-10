@@ -1,0 +1,14 @@
+/*
+ * Copyright (c) 2026 KyleBing
+ * SPDX-License-Identifier: MIT
+ */
+
+/ {
+    behaviors {
+        /* Behavior name must be <= 8 characters for split peripherals. */
+        tp_mode: tpmode {
+            compatible = "zmk,behavior-trackpad-mode";
+            #binding-cells = <1>;
+        };
+    };
+};

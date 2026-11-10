@@ -19,6 +19,9 @@
 #include <zmk/usb.h>
 #include <zmk/event_manager.h>
 #include <zmk/keymap.h>
+#if IS_ENABLED(CONFIG_INPUT_A320)
+#include <zmk/trackpad_mode.h>
+#endif
 
 LOG_MODULE_DECLARE(zmk, CONFIG_ZMK_LOG_LEVEL);
 
@@ -103,9 +106,22 @@ int zmk_indicator_capslock_set_brt(uint8_t brightness) {
 uint8_t zmk_indicator_capslock_get_brt() { return state.on ? state.brightness : 0; }
 
 static void polling_work_work_handler(struct k_work *work) {
-    if (zmk_hid_indicators_get_current_profile() == 2 ||
-        zmk_hid_indicators_get_current_profile() == 3 ||
-        zmk_hid_indicators_get_current_profile() == 7) {
+    bool led_on = false;
+
+#if IS_ENABLED(CONFIG_INPUT_A320)
+    /* Scroll / arrow trackpad modes light the trackpad LED. */
+    if (zmk_trackpad_mode_get() != ZMK_TRACKPAD_MODE_MOUSE) {
+        led_on = true;
+    }
+#endif
+
+    if (!led_on && (zmk_hid_indicators_get_current_profile() == 2 ||
+                    zmk_hid_indicators_get_current_profile() == 3 ||
+                    zmk_hid_indicators_get_current_profile() == 7)) {
+        led_on = true;
+    }
+
+    if (led_on) {
         zmk_indicator_capslock_set_brt(CONFIG_ZMK_INDICATOR_CAPSLOCK_BRT);
         zmk_indicator_capslock_on();
     } else {
