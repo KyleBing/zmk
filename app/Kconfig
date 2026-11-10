@@ -412,9 +412,12 @@ config INPUT_A320_POLLINGRATE
 	  set the polling rate of a320
 
 config TRACKPAD_SCROLL_INTERVAL
-    int "Trackpad scroll interval"
+    int "Trackpad scroll interval / distance per wheel notch"
     range 10 500
     default 20
+    help
+      BBQ10 scroll mode: sensor units per HID wheel notch (higher = slower).
+      Other boards may still use this as a sleep between coarse scroll ticks.
 
 config TRACKPAD_SPEEDMULTIPLIER_HORIZONTAL
     int "trackpad speed multiplier in horizontal direction"

@@ -13,6 +13,7 @@
 #include <zephyr/devicetree.h>
 #include <zephyr/settings/settings.h>
 #include <zephyr/drivers/sensor.h>
+#include <zephyr/sys/util.h>
 #include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(zmk, CONFIG_ZMK_LOG_LEVEL);
 
@@ -151,16 +152,86 @@ static void handle_legacy_caps_or_mouse(int8_t x, int8_t y) {
     send_mouse_report(x, y, scroll_x, scroll_y);
 }
 
-static void handle_bbq10_trackpad(int8_t x, int8_t y) {
-    switch (zmk_trackpad_mode_get()) {
-    case ZMK_TRACKPAD_MODE_SCROLL: {
-        int8_t scroll_x = 0;
-        int8_t scroll_y = 0;
-        compute_scroll_from_delta(x, y, &scroll_x, &scroll_y);
-        k_sleep(K_MSEC(CONFIG_TRACKPAD_SCROLL_INTERVAL));
-        send_mouse_report(0, 0, scroll_x, scroll_y);
-        break;
+/*
+ * Pixel-ish wheel: accumulate movement, emit small HID notches every poll,
+ * then coast with decaying velocity after lift (Magic Mouse-like inertia).
+ * CONFIG_TRACKPAD_SCROLL_INTERVAL is distance-per-notch, not a sleep.
+ */
+static void handle_inertial_scroll(int8_t raw_x, int8_t raw_y, bool active) {
+    static int32_t acc_x, acc_y;
+    static int32_t vel_x, vel_y;
+    static uint8_t idle;
+    static uint8_t axis; /* 0 none, 1 horiz, 2 vert */
+
+    if (!active) {
+        acc_x = acc_y = vel_x = vel_y = 0;
+        idle = 0;
+        axis = 0;
+        return;
     }
+
+    const int32_t unit = MAX((int32_t)CONFIG_TRACKPAD_SCROLL_INTERVAL, 8);
+    const int16_t dx = raw_x;
+    const int16_t dy = raw_y;
+    const int16_t dead = 1;
+
+    if (abs(dx) > dead || abs(dy) > dead) {
+        idle = 0;
+        acc_x += dx;
+        acc_y += dy;
+        vel_x = CLAMP((vel_x + dx * 3) / 2, -40, 40);
+        vel_y = CLAMP((vel_y + dy * 3) / 2, -40, 40);
+    } else {
+        if (idle < 200) {
+            idle++;
+        }
+        if (idle >= 2) {
+            vel_x = (vel_x * 92) / 100;
+            vel_y = (vel_y * 92) / 100;
+            acc_x += vel_x;
+            acc_y += vel_y;
+            if (abs(vel_x) <= 1 && abs(vel_y) <= 1) {
+                acc_x = acc_y = vel_x = vel_y = 0;
+                axis = 0;
+            }
+        }
+    }
+
+    if (axis == 0) {
+        if (abs(acc_x) >= unit || abs(acc_y) >= unit) {
+            axis = (abs(acc_y) >= abs(acc_x)) ? 2 : 1;
+        }
+    }
+
+    int8_t sx = 0;
+    int8_t sy = 0;
+    if (axis == 2) {
+        int32_t q = acc_y / unit;
+        sy = (int8_t)CLAMP(-q, -4, 4);
+        acc_y -= (-(int32_t)sy) * unit;
+        acc_x = 0;
+        vel_x = 0;
+    } else if (axis == 1) {
+        int32_t q = acc_x / unit;
+        sx = (int8_t)CLAMP(-q, -4, 4);
+        acc_x -= (-(int32_t)sx) * unit;
+        acc_y = 0;
+        vel_y = 0;
+    }
+
+    if (sx != 0 || sy != 0) {
+        send_mouse_report(0, 0, sx, sy);
+    }
+}
+
+static void handle_bbq10_trackpad(int8_t x, int8_t y) {
+    enum zmk_trackpad_mode mode = zmk_trackpad_mode_get();
+
+    handle_inertial_scroll(x, y, mode == ZMK_TRACKPAD_MODE_SCROLL);
+
+    switch (mode) {
+    case ZMK_TRACKPAD_MODE_SCROLL:
+        break;
     case ZMK_TRACKPAD_MODE_ARROW:
         handle_arrow_mode(x, y);
         break;
