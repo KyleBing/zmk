@@ -20,6 +20,7 @@
 #include <zmk/events/activity_state_changed.h>
 #include <zmk/events/usb_conn_state_changed.h>
 #include <zmk/keymap.h>
+#include <zmk/led_fx.h>
 
 LOG_MODULE_DECLARE(zmk, CONFIG_ZMK_LOG_LEVEL);
 
@@ -66,28 +67,33 @@ static struct indicator_led_state state = {
     .cycle_state = false,
     .blinky_state = false,
 };
-static uint8_t burst_step;
 static uint8_t last_layer = 0xFF;
+static int last_pattern = -1;
+static struct zmk_led_fx_state fx;
 static void polling_work_work_handler(struct k_work *work);
 int zmk_indicator_led_on();
 int zmk_indicator_led_off();
 
-#define LAYER_BURST_FLASHES 2
-#define LAYER_BURST_PAUSE_TICKS 4
-
-static void apply_layer_burst(uint8_t flashes) {
-    uint8_t onoff = flashes * 2;
-    uint8_t period = onoff + LAYER_BURST_PAUSE_TICKS;
-    uint8_t phase = burst_step % period;
-    bool lit = (phase < onoff) && ((phase % 2) == 0);
-
-    if (lit) {
-        zmk_indicator_led_set_brt(CONFIG_ZMK_IDICATOR_LAYER_BRT);
-        zmk_indicator_led_on();
-    } else {
-        zmk_indicator_led_off();
+static int pattern_for_layer(uint8_t layer) {
+    switch (layer) {
+    case 1:
+        return CONFIG_ZMK_LED_LAYER1_PATTERN;
+    case 2:
+        return CONFIG_ZMK_LED_LAYER2_PATTERN;
+    default:
+        return CONFIG_ZMK_LED_LAYER0_PATTERN;
     }
-    burst_step++;
+}
+
+static void apply_pattern(int pattern) {
+    uint8_t brt = zmk_led_fx_tick(pattern, &fx, CONFIG_ZMK_IDICATOR_LAYER_BRT,
+                                  CONFIG_ZMK_IDICATOR_LAYER_CYCLE_MINBRT,
+                                  CONFIG_ZMK_IDICATOR_BRT_STEP, CONFIG_ZMK_LED_BURST_PAUSE_TICKS);
+    if (brt == 0) {
+        zmk_indicator_led_off();
+        return;
+    }
+    zmk_indicator_led_set_brt(brt);
 }
 
 static int zmk_indicator_led_update() {
@@ -244,33 +250,20 @@ static inline void blinky_onoff(bool onoff) {
 
 static void polling_work_work_handler(struct k_work *work) {
     uint8_t layer = zmk_keymap_highest_layer_active();
+    int pattern = pattern_for_layer(layer);
 
-    if (layer != last_layer) {
-        burst_step = 0;
+    cycle_onoff(false);
+    blinky_onoff(false);
+
+    if (layer != last_layer || pattern != last_pattern) {
+        fx.step = 0;
+        fx.brt = CONFIG_ZMK_IDICATOR_LAYER_CYCLE_MINBRT;
+        fx.dir = 1;
         last_layer = layer;
+        last_pattern = pattern;
     }
 
-    if (layer == 0) {
-        cycle_onoff(false);
-        blinky_onoff(false);
-        zmk_indicator_led_off();
-    } else if (layer == 1) {
-        /* 符号层：上层 4 灯长亮 */
-        cycle_onoff(false);
-        blinky_onoff(false);
-        zmk_indicator_led_set_brt(CONFIG_ZMK_IDICATOR_LAYER_BRT);
-        zmk_indicator_led_on();
-    } else if (layer == 2) {
-        /* 功能层：2 闪一顿 */
-        cycle_onoff(false);
-        blinky_onoff(false);
-        apply_layer_burst(LAYER_BURST_FLASHES);
-    } else if (layer == 3) {
-        if (!zmk_indicator_led_is_on())
-            zmk_indicator_led_on();
-        cycle_onoff(false);
-        blinky_onoff(true);
-    }
+    apply_pattern(pattern);
     k_work_reschedule(&polling_work, K_MSEC(120));
 }
 /*static void polling_work_work_handler(struct k_work *work) {

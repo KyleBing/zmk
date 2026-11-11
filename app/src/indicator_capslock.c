@@ -21,6 +21,7 @@
 #include <zmk/event_manager.h>
 #include <zmk/keymap.h>
 #include <zmk/trackpad_mode.h>
+#include <zmk/led_fx.h>
 
 LOG_MODULE_DECLARE(zmk, CONFIG_ZMK_LOG_LEVEL);
 
@@ -36,7 +37,6 @@ static const struct device *const indicaps_dev = DEVICE_DT_GET(DT_CHOSEN(zmk_ind
 #define INDICATOR_LED_NUM_LEDS (DT_NUM_CHILD(DT_CHOSEN(zmk_indicator_capslock)))
 
 #define BRT_MAX 100
-#define BURST_PAUSE_TICKS 4
 #define LED_TICK_MS 120
 
 struct indicator_capslock_state {
@@ -49,8 +49,8 @@ static struct indicator_capslock_state state = {
     .brightness = CONFIG_ZMK_INDICATOR_CAPSLOCK_BRT,
     .on = IS_ENABLED(CONFIG_ZMK_IDICATOR_ON_START),
 };
-static uint8_t burst_step;
 static int last_pattern = -1;
+static struct zmk_led_fx_state fx;
 
 static void polling_work_work_handler(struct k_work *work);
 
@@ -112,46 +112,39 @@ static bool hid_capslock_on(void) {
     return profile == 2 || profile == 3 || profile == 7;
 }
 
-/* n flashes then a pause: on, off, on, off, ... then idle dark. */
-static void apply_burst(uint8_t flashes) {
-    uint8_t onoff = flashes * 2;
-    uint8_t period = onoff + BURST_PAUSE_TICKS;
-    uint8_t phase = burst_step % period;
-    bool lit = (phase < onoff) && ((phase % 2) == 0);
-
-    if (lit) {
-        zmk_indicator_capslock_on();
-    } else {
-        zmk_indicator_capslock_off();
+static int pattern_for_pad(void) {
+    enum zmk_trackpad_mode mode = zmk_trackpad_mode_get();
+    if (mode == ZMK_TRACKPAD_MODE_SCROLL) {
+        return CONFIG_ZMK_LED_PAD_SCROLL_PATTERN;
     }
-    burst_step++;
+    if (mode == ZMK_TRACKPAD_MODE_ARROW) {
+        return CONFIG_ZMK_LED_PAD_ARROW_PATTERN;
+    }
+    if (hid_capslock_on()) {
+        return CONFIG_ZMK_LED_PAD_CAPS_PATTERN;
+    }
+    return CONFIG_ZMK_LED_PAD_IDLE_PATTERN;
 }
 
 static void polling_work_work_handler(struct k_work *work) {
-    enum zmk_trackpad_mode mode = zmk_trackpad_mode_get();
-    int pattern;
-
-    if (mode == ZMK_TRACKPAD_MODE_SCROLL) {
-        pattern = 2;
-    } else if (mode == ZMK_TRACKPAD_MODE_ARROW) {
-        pattern = 4;
-    } else if (hid_capslock_on()) {
-        pattern = 0; /* solid */
-    } else {
-        pattern = -1; /* off */
-    }
+    int pattern = pattern_for_pad();
 
     if (pattern != last_pattern) {
-        burst_step = 0;
+        fx.step = 0;
+        fx.brt = 20;
+        fx.dir = 1;
         last_pattern = pattern;
     }
 
-    if (pattern > 0) {
-        apply_burst((uint8_t)pattern);
-    } else if (pattern == 0) {
-        zmk_indicator_capslock_on();
-    } else {
+#ifndef CONFIG_ZMK_LED_BURST_PAUSE_TICKS
+#define CONFIG_ZMK_LED_BURST_PAUSE_TICKS 4
+#endif
+    uint8_t brt = zmk_led_fx_tick(pattern, &fx, CONFIG_ZMK_INDICATOR_CAPSLOCK_BRT, 15, 5,
+                                  CONFIG_ZMK_LED_BURST_PAUSE_TICKS);
+    if (brt == 0) {
         zmk_indicator_capslock_off();
+    } else {
+        zmk_indicator_capslock_set_brt(brt);
     }
 
     k_work_reschedule(&polling_work, K_MSEC(LED_TICK_MS));

@@ -384,6 +384,26 @@ config ZMK_IDICATOR_BLINK_INTERVAL
     int "BLINK INTERVAL for INDICATOR LAYER 4"
     default 300
 
+config ZMK_LED_LAYER0_PATTERN
+    int "Default-layer LED pattern (0 off … 11 pulse)"
+    range 0 11
+    default 0
+
+config ZMK_LED_LAYER1_PATTERN
+    int "Symbol-layer LED pattern"
+    range 0 11
+    default 1
+
+config ZMK_LED_LAYER2_PATTERN
+    int "Utility-layer LED pattern"
+    range 0 11
+    default 3
+
+config ZMK_LED_BURST_PAUSE_TICKS
+    int "Ticks of darkness after a burst (120ms each)"
+    range 1 20
+    default 4
+
 #ZMK_INDICATOR_LED
 endif
 
@@ -396,6 +416,26 @@ config ZMK_INDICATOR_CAPSLOCK_BRT
     int "Default Brightness On Start"
     range 1 100
     default 20
+
+config ZMK_LED_PAD_IDLE_PATTERN
+    int "Trackpad LED when mouse mode (no caps)"
+    range 0 11
+    default 0
+
+config ZMK_LED_PAD_CAPS_PATTERN
+    int "Trackpad LED when Caps Lock on"
+    range 0 11
+    default 1
+
+config ZMK_LED_PAD_SCROLL_PATTERN
+    int "Trackpad LED in scroll mode"
+    range 0 11
+    default 3
+
+config ZMK_LED_PAD_ARROW_PATTERN
+    int "Trackpad LED in arrow mode"
+    range 0 11
+    default 5
 
 #ZMK_INDICATOR_CAPSLOCK
 endif
